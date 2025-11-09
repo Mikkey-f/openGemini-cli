@@ -434,7 +434,7 @@ func (oe *OnlineExporter) Export(ctx context.Context, config *ExportConfig, prog
 		}
 	}
 
-	start, end := time.Time{}, time.Time{}
+	var start, end time.Time
 	if config.TimeFilter != "" {
 		start, end, _ = parseTimeRange(config.TimeFilter)
 	} else {
