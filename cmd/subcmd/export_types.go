@@ -61,19 +61,19 @@ type ExportCommand struct {
 }
 
 type Exporter struct {
-	exportFormat      string
-	databaseDiskInfos []*DatabaseDiskInfo
+	exportFormat      string              //nolint:unused,structcheck // used in offline mode
+	databaseDiskInfos []*DatabaseDiskInfo //nolint:unused,structcheck // used in offline mode
 	filesTotalCount   int
-	actualDataPath    string
-	actualWalPath     string
-	outPutPath        string
-	filter            *dataFilter
-	compress          bool
+	actualDataPath    string //nolint:unused,structcheck // used in offline mode
+	actualWalPath     string //nolint:unused,structcheck // used in offline mode
+	outPutPath        string //nolint:unused,structcheck // used in offline mode
+	filter            *dataFilter //nolint:unused,structcheck // used in offline mode
+	compress          bool        //nolint:unused,structcheck // used in offline mode
 	lineCount         uint64
 	resume            bool
 	progress          map[string]struct{}
-	remote            string
-	remoteExporter    *remoteExporter
+	remote            string          //nolint:unused,structcheck // used in offline mode
+	remoteExporter    *remoteExporter //nolint:unused,structcheck // used in offline mode
 	parser
 
 	stderrLogger  *log.Logger
@@ -90,7 +90,7 @@ type Exporter struct {
 	bar    *mpb.Bar
 }
 
-type DatabaseDiskInfo struct {
+type DatabaseDiskInfo struct { //nolint:unused // used in offline mode
 	dbName          string
 	rps             map[string]struct{}
 	dataDir         string
@@ -179,7 +179,7 @@ func (d *DatabaseDiskInfo) init(actualDataDir string, actualWalDir string, datab
 	return nil
 }
 
-type dataFilter struct {
+type dataFilter struct { //nolint:unused // used in offline mode
 	database    string
 	retention   string
 	measurement string
@@ -187,15 +187,15 @@ type dataFilter struct {
 	endTime     int64
 }
 
-func (d *dataFilter) isBelowMinTimeFilter(t int64) bool {
+func (d *dataFilter) isBelowMinTimeFilter(t int64) bool { //nolint:unused // used in offline mode
 	return t < d.startTime
 }
 
-func (d *dataFilter) isAboveMaxTimeFilter(t int64) bool {
+func (d *dataFilter) isAboveMaxTimeFilter(t int64) bool { //nolint:unused // used in offline mode
 	return t > d.endTime
 }
 
-func newDataFilter() *dataFilter {
+func newDataFilter() *dataFilter { //nolint:unused // used in offline mode
 	return &dataFilter{
 		database:    "",
 		measurement: "",
@@ -204,7 +204,7 @@ func newDataFilter() *dataFilter {
 	}
 }
 
-func newDatabaseDiskInfo() *DatabaseDiskInfo {
+func newDatabaseDiskInfo() *DatabaseDiskInfo { //nolint:unused // used in offline mode
 	return &DatabaseDiskInfo{
 		rps:             make(map[string]struct{}),
 		rpToTsspDirMap:  make(map[string]string),

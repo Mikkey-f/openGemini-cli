@@ -1443,4 +1443,3 @@ func (c *csvParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info 
 
 func (c *csvParser) writeOutputInfo(_ io.Writer, _ string) {
 }
-
