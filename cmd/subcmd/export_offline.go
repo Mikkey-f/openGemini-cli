@@ -18,21 +18,15 @@
 package subcmd
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
-	"context"
-	"crypto/tls"
 	"encoding/binary"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -55,11 +49,66 @@ import (
 	"github.com/vbauerster/mpb/v7/decor"
 )
 
-var (
-	MpbProgress         = mpb.New(mpb.WithWidth(100))
-	ResumeJsonPath      string
-	ProgressedFilesPath string
+// Helper functions for offline mode
+
+const (
+	dirNameSeparator = "_"
 )
+
+func parseShardDir(shardDirName string) (uint64, int64, int64, uint64, error) {
+	shardDir := strings.Split(shardDirName, dirNameSeparator)
+	if len(shardDir) != 4 {
+		return 0, 0, 0, 0, errno.NewError(errno.InvalidDataDir)
+	}
+	shardID, err := strconv.ParseUint(shardDir[0], 10, 64)
+	if err != nil {
+		return 0, 0, 0, 0, errno.NewError(errno.InvalidDataDir)
+	}
+	dirStartTime, err := strconv.ParseInt(shardDir[1], 10, 64)
+	if err != nil {
+		return 0, 0, 0, 0, errno.NewError(errno.InvalidDataDir)
+	}
+	dirEndTime, err := strconv.ParseInt(shardDir[2], 10, 64)
+	if err != nil {
+		return 0, 0, 0, 0, errno.NewError(errno.InvalidDataDir)
+	}
+	indexID, err := strconv.ParseUint(shardDir[3], 10, 64)
+	if err != nil {
+		return 0, 0, 0, 0, errno.NewError(errno.InvalidDataDir)
+	}
+	return shardID, dirStartTime, dirEndTime, indexID, nil
+}
+
+func parseIndexDir(indexDirName string) (uint64, error) {
+	indexDir := strings.Split(indexDirName, dirNameSeparator)
+	if len(indexDir) != 3 {
+		return 0, errno.NewError(errno.InvalidDataDir)
+	}
+
+	indexID, err := strconv.ParseUint(indexDir[0], 10, 64)
+	if err != nil {
+		return 0, errno.NewError(errno.InvalidDataDir)
+	}
+	return indexID, nil
+}
+
+func getFieldNameIndexFromRecord(slice []record.Field, str string) (int, bool) {
+	for i, v := range slice {
+		if v.Name == str {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func getFieldNameIndexFromRow(slice []influx.Field, str string) (int, bool) {
+	for i, v := range slice {
+		if v.Key == str {
+			return i, true
+		}
+	}
+	return 0, false
+}
 
 // Init inits the Exporter instance for offline mode
 func (e *Exporter) Init(clc *ExportConfig, progressedFiles map[string]struct{}) error {
@@ -201,92 +250,6 @@ func (c *ExportCommand) process() error {
 	}
 }
 
-func getResumeConfig(options *ExportConfig) (*ExportConfig, error) {
-	jsonData, err := os.ReadFile(ResumeJsonPath)
-	if err != nil {
-		return nil, err
-	}
-	var config ExportConfig
-	err = json.Unmarshal(jsonData, &config)
-	if err != nil {
-		return nil, err
-	}
-	config.Resume = true
-	config.RemoteUsername = options.RemoteUsername
-	config.RemotePassword = options.RemotePassword
-	return &config, nil
-}
-
-func getProgressedFiles() (map[string]struct{}, error) {
-	file, err := os.Open(ProgressedFilesPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	lineSet := make(map[string]struct{})
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		lineSet[line] = struct{}{}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return lineSet, nil
-}
-
-// CreateNewProgressFolder init ResumeJsonPath and ProgressedFilesPath
-func CreateNewProgressFolder() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	targetPath := filepath.Join(home, ".ts-cli", time.Now().Format("2006-01-02_15-04-05.000000000"))
-	err = os.MkdirAll(targetPath, os.ModePerm)
-	if err != nil {
-		return err
-	}
-	// create progress.json
-	progressJson := filepath.Join(targetPath, "progress.json")
-	ResumeJsonPath = progressJson
-	// create progressedFiles
-	progressedFiles := filepath.Join(targetPath, "progressedFiles")
-	ProgressedFilesPath = progressedFiles
-	return nil
-}
-
-// ReadLatestProgressFile reads and processes the latest folder
-func ReadLatestProgressFile() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	baseDir := filepath.Join(home, ".ts-cli")
-	var dirs []string
-	err = filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() || path == baseDir {
-			return nil
-		}
-		dirs = append(dirs, path)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	sort.Strings(dirs)
-	latestDir := dirs[len(dirs)-1]
-	// read progress.json
-	ResumeJsonPath = filepath.Join(latestDir, "progress.json")
-	// read progressedFiles
-	ProgressedFilesPath = filepath.Join(latestDir, "progressedFiles")
-	return nil
-}
 
 // parseActualDir transforms user puts in datadir and waldir to actual dirs
 func (e *Exporter) parseActualDir(clc *ExportConfig) error {
@@ -886,33 +849,6 @@ func (e *Exporter) writeDML(metaWriter io.Writer, outputWriter io.Writer) error 
 	return nil
 }
 
-// writeProgressJson writes progress to json file
-func (e *Exporter) writeProgressJson(clc *ExportConfig) error {
-	output, err := json.MarshalIndent(clc, "", "\t")
-	if err != nil {
-		return err
-	}
-	err = os.WriteFile(ResumeJsonPath, output, 0644)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// writeProgressedFiles writes progressed file name
-func (e *Exporter) writeProgressedFiles(filename string) error {
-	file, err := os.OpenFile(ProgressedFilesPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.WriteString(filename + "\n")
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
 // writeAllTsspFilesInRp writes all tssp files in a "database:retention policy"
 func (e *Exporter) writeAllTsspFilesInRp(metaWriter io.Writer, outputWriter io.Writer, measurementFilesMap map[string][]string, indexesMap map[uint64]*tsi.MergeSetIndex) error {
@@ -989,8 +925,6 @@ func (e *Exporter) writeAllWalFilesInRp(metaWriter io.Writer, outputWriter io.Wr
 	return nil
 }
 
-// parseShardDir and parseIndexDir are defined in export_types.go
-
 type txtParser struct{}
 
 func newTxtParser() *txtParser {
@@ -1039,7 +973,11 @@ func (t *txtParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitW
 	return dst[:len(dst)-1], nil
 }
 
-func (t *txtParser) appendFields(rec record.Record, buf []byte, point *opengemini.Point) ([]byte, error) {
+func (t *txtParser) appendFields(recInterface interface{}, buf []byte, point *opengemini.Point) ([]byte, error) {
+	rec, ok := recInterface.(record.Record)
+	if !ok {
+		return nil, fmt.Errorf("invalid record type for offline mode")
+	}
 	buf = append(buf, ' ')
 	for i, field := range rec.Schema {
 		if field.Name == "time" {
@@ -1278,7 +1216,11 @@ func (c *csvParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitW
 	return dst, nil
 }
 
-func (c *csvParser) appendFields(rec record.Record, buf []byte, _ *opengemini.Point) ([]byte, error) {
+func (c *csvParser) appendFields(recInterface interface{}, buf []byte, _ *opengemini.Point) ([]byte, error) {
+	rec, ok := recInterface.(record.Record)
+	if !ok {
+		return nil, fmt.Errorf("invalid record type for offline mode")
+	}
 	curFieldsName := c.fieldsName[c.curDatabase][c.curMeasurement]
 	for _, fieldName := range curFieldsName {
 		if fieldName == "time" {
@@ -1502,222 +1444,3 @@ func (c *csvParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info 
 func (c *csvParser) writeOutputInfo(_ io.Writer, _ string) {
 }
 
-var escapeFieldKeyReplacer = strings.NewReplacer(`,`, `\,`, `=`, `\=`, ` `, `\ `)
-var escapeTagKeyReplacer = strings.NewReplacer(`,`, `\,`, `=`, `\=`, ` `, `\ `)
-var escapeTagValueReplacer = strings.NewReplacer(`,`, `\,`, `=`, `\=`, ` `, `\ `)
-var escapeMstNameReplacer = strings.NewReplacer(`=`, `\=`, ` `, `\ `)
-var escapeStringFieldReplacer = strings.NewReplacer(`"`, `\"`, `\`, `\\`)
-
-// EscapeFieldKey returns a copy of in with any comma or equal sign or space
-// with escaped values.
-func EscapeFieldKey(in string) string {
-	return escapeFieldKeyReplacer.Replace(in)
-}
-
-// EscapeStringFieldValue returns a copy of in with any double quotes or
-// backslashes with escaped values.
-func EscapeStringFieldValue(in string) string {
-	return escapeStringFieldReplacer.Replace(in)
-}
-
-// EscapeTagKey returns a copy of in with any "comma" or "equal sign" or "space"
-// with escaped values.
-func EscapeTagKey(in string) string {
-	return escapeTagKeyReplacer.Replace(in)
-}
-
-// EscapeTagValue returns a copy of in with any "comma" or "equal sign" or "space"
-// with escaped values
-func EscapeTagValue(in string) string {
-	return escapeTagValueReplacer.Replace(in)
-}
-
-// EscapeMstName returns a copy of in with any "equal sign" or "space"
-// with escaped values.
-func EscapeMstName(in string) string {
-	return escapeMstNameReplacer.Replace(in)
-}
-
-// getFieldNameIndexFromRecord returns the index of a field in a slice
-func getFieldNameIndexFromRecord(slice []record.Field, str string) (int, bool) {
-	for i, v := range slice {
-		if v.Name == str {
-			return i, true
-		}
-	}
-	return 0, false
-}
-
-func getFieldNameIndexFromRow(slice []influx.Field, str string) (int, bool) {
-	for i, v := range slice {
-		if v.Key == str {
-			return i, true
-		}
-	}
-	return 0, false
-}
-
-func convertTime(input string) (int64, error) {
-	t, err := time.Parse(time.RFC3339, input)
-	if err == nil {
-		return t.UnixNano(), nil
-	}
-
-	timestamp, err := strconv.ParseInt(input, 10, 64)
-	if err == nil {
-		return timestamp, nil
-	}
-
-	return 0, err
-}
-
-func (d *dataFilter) parseTime(clc *ExportConfig) error {
-	var start, end string
-	timeSlot := strings.Split(clc.TimeFilter, "~")
-	if len(timeSlot) == 2 {
-		start = timeSlot[0]
-		end = timeSlot[1]
-	} else if clc.TimeFilter != "" {
-		return fmt.Errorf("invalid time filter %q", clc.TimeFilter)
-	}
-
-	if start != "" {
-		st, err := convertTime(start)
-		if err != nil {
-			return err
-		}
-		d.startTime = st
-	}
-
-	if end != "" {
-		ed, err := convertTime(end)
-		if err != nil {
-			return err
-		}
-		d.endTime = ed
-	}
-
-	if d.startTime > d.endTime {
-		return fmt.Errorf("start time `%q` > end time `%q`", start, end)
-	}
-
-	return nil
-}
-
-func (d *dataFilter) parseDatabase(dbFilter string) {
-	if dbFilter == "" {
-		return
-	}
-	d.database = dbFilter
-}
-
-func (d *dataFilter) parseRetention(retentionFilter string) {
-	if retentionFilter == "" {
-		return
-	}
-	d.retention = retentionFilter
-}
-
-func (d *dataFilter) parseMeasurement(mstFilter string) error {
-	if mstFilter == "" {
-		return nil
-	}
-	if mstFilter != "" && d.database == "" {
-		return fmt.Errorf("measurement filter %q requires database filter", mstFilter)
-	}
-	d.measurement = mstFilter
-	return nil
-}
-
-// timeFilter [startTime, endTime]
-func (d *dataFilter) timeFilter(t int64) bool {
-	return t >= d.startTime && t <= d.endTime
-}
-
-func (re *remoteExporter) Init(clc *ExportConfig) error {
-	if len(clc.Remote) == 0 {
-		return fmt.Errorf("execute -export cmd, using remote format, --remote is required")
-	}
-	h, p, err := net.SplitHostPort(clc.Remote)
-	if err != nil {
-		return err
-	}
-	port, err := strconv.Atoi(p)
-	if err != nil {
-		return fmt.Errorf("invalid port number :%s", err)
-	}
-	var authConfig *opengemini.AuthConfig
-	if clc.RemoteUsername != "" {
-		authConfig = &opengemini.AuthConfig{
-			AuthType: 0,
-			Username: clc.RemoteUsername,
-			Password: clc.RemotePassword,
-		}
-	} else {
-		authConfig = nil
-	}
-	var remoteConfig *opengemini.Config
-	if clc.RemoteSsl {
-		remoteConfig = &opengemini.Config{
-			Addresses: []opengemini.Address{
-				{
-					Host: h,
-					Port: port,
-				},
-			},
-			AuthConfig: authConfig,
-			TlsConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
-	} else {
-		remoteConfig = &opengemini.Config{
-			Addresses: []opengemini.Address{
-				{
-					Host: h,
-					Port: port,
-				},
-			},
-			AuthConfig: authConfig,
-		}
-	}
-
-	cli, err := opengemini.NewClient(remoteConfig)
-	if err != nil {
-		return err
-	}
-	re.isExist = true
-	re.client = cli
-	if err = re.client.Ping(0); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (re *remoteExporter) createDatabase(dbName string) error {
-	err := re.client.CreateDatabase(dbName)
-	if err != nil {
-		return fmt.Errorf("error writing command: %s", err)
-	}
-	return nil
-}
-
-func (re *remoteExporter) createRetentionPolicy(dbName string, rpName string) error {
-	err := re.client.CreateRetentionPolicy(dbName, opengemini.RpConfig{
-		Name:     rpName,
-		Duration: "0s",
-	}, false)
-	if err != nil {
-		return fmt.Errorf("error writing command: %s", err)
-	}
-	return nil
-}
-
-func (re *remoteExporter) writeAllPoints() error {
-	err := re.client.WriteBatchPointsWithRp(context.Background(), re.database, re.retentionPolicy, re.points)
-	if err != nil {
-		return err
-	}
-	re.points = re.points[:0]
-	return nil
-}
