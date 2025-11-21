@@ -14,6 +14,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fastjson v1.6.4
 	github.com/vbauerster/mpb/v7 v7.3.2
+	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.34.0
 	google.golang.org/grpc v1.74.2
 )
@@ -140,7 +141,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect

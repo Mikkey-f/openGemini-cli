@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build offline
-// +build offline
+//go:build full
+// +build full
 
 package subcmd
 
@@ -33,6 +33,7 @@ import (
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding"
 	"github.com/golang/snappy"
+	influx "github.com/openGemini/openGemini-cli/lib/influxparser"
 	"github.com/openGemini/openGemini/engine"
 	"github.com/openGemini/openGemini/engine/immutable"
 	"github.com/openGemini/openGemini/engine/index/tsi"
@@ -43,7 +44,6 @@ import (
 	"github.com/openGemini/openGemini/lib/index"
 	"github.com/openGemini/openGemini/lib/record"
 	"github.com/openGemini/openGemini/lib/util"
-	"github.com/openGemini/openGemini/lib/util/lifted/vm/protoparser/influx"
 	"github.com/openGemini/opengemini-client-go/opengemini"
 	"github.com/vbauerster/mpb/v7"
 	"github.com/vbauerster/mpb/v7/decor"
@@ -101,7 +101,7 @@ func getFieldNameIndexFromRecord(slice []record.Field, str string) (int, bool) {
 	return 0, false
 }
 
-func getFieldNameIndexFromRow(slice []influx.Field, str string) (int, bool) {
+func getFieldNameIndexFromRowOffline(slice []influx.Field, str string) (int, bool) {
 	for i, v := range slice {
 		if v.Key == str {
 			return i, true
@@ -137,9 +137,9 @@ func (e *Exporter) Init(clc *ExportConfig, progressedFiles map[string]struct{}) 
 	}
 	e.exportFormat = clc.Format
 	if e.exportFormat == txtFormatExporter || e.exportFormat == remoteFormatExporter {
-		e.parser = newTxtParser()
+		e.parser = newOfflineTxtParser()
 	} else if e.exportFormat == csvFormatExporter {
-		e.parser = newCsvParser()
+		e.parser = newOfflineCsvParser()
 	}
 	e.outPutPath = clc.Out
 	e.compress = clc.Compress
@@ -197,18 +197,18 @@ func (e *Exporter) Export(clc *ExportConfig, progressedFiles map[string]struct{}
 }
 
 // Run executes the export command in offline mode
-func (c *ExportCommand) Run(config *ExportConfig) error {
+func (c *ExportCommand) runOfflineExport(config *ExportConfig) error {
 	if err := flag.CommandLine.Parse([]string{"-loggerLevel=ERROR"}); err != nil {
 		return err
 	}
 	c.cfg = config
 	c.exportCmd = NewExporter()
 
-	return c.process()
+	return c.processOffline()
 }
 
 // process handles the export process in offline mode
-func (c *ExportCommand) process() error {
+func (c *ExportCommand) processOffline() error {
 	useOffline := (c.cfg.DataDir != "" || c.cfg.WalDir != "")
 
 	if c.cfg.Resume {
@@ -249,7 +249,6 @@ func (c *ExportCommand) process() error {
 		}
 	}
 }
-
 
 // parseActualDir transforms user puts in datadir and waldir to actual dirs
 func (e *Exporter) parseActualDir(clc *ExportConfig) error {
@@ -849,7 +848,6 @@ func (e *Exporter) writeDML(metaWriter io.Writer, outputWriter io.Writer) error 
 	return nil
 }
 
-
 // writeAllTsspFilesInRp writes all tssp files in a "database:retention policy"
 func (e *Exporter) writeAllTsspFilesInRp(metaWriter io.Writer, outputWriter io.Writer, measurementFilesMap map[string][]string, indexesMap map[uint64]*tsi.MergeSetIndex) error {
 	e.parser.writeMetaInfo(metaWriter, 0, "# FROM TSSP FILE")
@@ -925,16 +923,16 @@ func (e *Exporter) writeAllWalFilesInRp(metaWriter io.Writer, outputWriter io.Wr
 	return nil
 }
 
-type txtParser struct{}
+type offlineTxtParser struct{}
 
-func newTxtParser() *txtParser {
-	return &txtParser{}
+func newOfflineTxtParser() *offlineTxtParser {
+	return &offlineTxtParser{}
 }
 
 // parse2SeriesKeyWithoutVersion parse encoded index key to line protocol series key,without version and escape special characters
 // encoded index key format: [total len][ms len][ms][tagkey1 len][tagkey1 val]...]
 // parse to line protocol format: mst,tagkey1=tagval1,tagkey2=tagval2...
-func (t *txtParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitWithNull bool, point *opengemini.Point) ([]byte, error) {
+func (t *offlineTxtParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitWithNull bool, point *opengemini.Point) ([]byte, error) {
 	msName, src, err := influx.MeasurementName(key)
 	originMstName := influx.GetOriginMstName(string(msName))
 	originMstName = EscapeMstName(originMstName)
@@ -973,7 +971,7 @@ func (t *txtParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitW
 	return dst[:len(dst)-1], nil
 }
 
-func (t *txtParser) appendFields(recInterface interface{}, buf []byte, point *opengemini.Point) ([]byte, error) {
+func (t *offlineTxtParser) appendFields(recInterface interface{}, buf []byte, point *opengemini.Point) ([]byte, error) {
 	rec, ok := recInterface.(record.Record)
 	if !ok {
 		return nil, fmt.Errorf("invalid record type for offline mode")
@@ -1018,7 +1016,7 @@ func (t *txtParser) appendFields(recInterface interface{}, buf []byte, point *op
 	return buf, nil
 }
 
-func (t *txtParser) writeMstInfoFromTssp(metaWriter io.Writer, outputWriter io.Writer, filePath string, isOrder bool, index interface{}) error {
+func (t *offlineTxtParser) writeMstInfoFromTssp(metaWriter io.Writer, outputWriter io.Writer, filePath string, isOrder bool, index interface{}) error {
 	idx, ok := index.(*tsi.MergeSetIndex)
 	if !ok {
 		return fmt.Errorf("invalid index type")
@@ -1094,11 +1092,11 @@ func (t *txtParser) writeMstInfoFromTssp(metaWriter io.Writer, outputWriter io.W
 	return nil
 }
 
-func (t *txtParser) writeMstInfoFromWal(_ io.Writer, _ io.Writer, _ interface{}, _ string) error {
+func (t *offlineTxtParser) writeMstInfoFromWal(_ io.Writer, _ io.Writer, _ interface{}, _ string) error {
 	return nil
 }
 
-func (t *txtParser) getRowBuf(buf []byte, measurementName string, row interface{}, point *opengemini.Point) ([]byte, error) {
+func (t *offlineTxtParser) getRowBuf(buf []byte, measurementName string, row interface{}, point *opengemini.Point) ([]byte, error) {
 	rowData, ok := row.(influx.Row)
 	if !ok {
 		return nil, fmt.Errorf("invalid row type")
@@ -1154,7 +1152,7 @@ func (t *txtParser) getRowBuf(buf []byte, measurementName string, row interface{
 	return buf, nil
 }
 
-func (t *txtParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info string) {
+func (t *offlineTxtParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info string) {
 	switch infoType {
 	case InfoTypeDatabase:
 		fmt.Fprintf(metaWriter, "# CONTEXT-DATABASE: %s\n", info)
@@ -1167,18 +1165,18 @@ func (t *txtParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info 
 	}
 }
 
-func (t *txtParser) writeOutputInfo(outputWriter io.Writer, info string) {
+func (t *offlineTxtParser) writeOutputInfo(outputWriter io.Writer, info string) {
 	fmt.Fprint(outputWriter, info)
 }
 
-type csvParser struct {
+type offlineCsvParser struct {
 	fieldsName     map[string]map[string][]string // database -> measurement -> []field
 	curDatabase    string
 	curMeasurement string
 }
 
-func newCsvParser() *csvParser {
-	return &csvParser{
+func newOfflineCsvParser() *offlineCsvParser {
+	return &offlineCsvParser{
 		fieldsName: make(map[string]map[string][]string),
 	}
 }
@@ -1186,7 +1184,7 @@ func newCsvParser() *csvParser {
 // parse2SeriesKeyWithoutVersion parse encoded index key to csv series key,without version and escape special characters
 // encoded index key format: [total len][ms len][ms][tagkey1 len][tagkey1 val]...]
 // parse to csv format: mst,tagval1,tagval2...
-func (c *csvParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitWithNull bool, _ *opengemini.Point) ([]byte, error) {
+func (c *offlineCsvParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitWithNull bool, _ *opengemini.Point) ([]byte, error) {
 	_, src, err := influx.MeasurementName(key)
 	if err != nil {
 		return []byte{}, err
@@ -1216,7 +1214,7 @@ func (c *csvParser) parse2SeriesKeyWithoutVersion(key []byte, dst []byte, splitW
 	return dst, nil
 }
 
-func (c *csvParser) appendFields(recInterface interface{}, buf []byte, _ *opengemini.Point) ([]byte, error) {
+func (c *offlineCsvParser) appendFields(recInterface interface{}, buf []byte, _ *opengemini.Point) ([]byte, error) {
 	rec, ok := recInterface.(record.Record)
 	if !ok {
 		return nil, fmt.Errorf("invalid record type for offline mode")
@@ -1257,7 +1255,7 @@ func (c *csvParser) appendFields(recInterface interface{}, buf []byte, _ *openge
 	return buf, nil
 }
 
-func (c *csvParser) writeMstInfoFromTssp(metaWriter io.Writer, outputWriter io.Writer, filePath string, isOrder bool, index interface{}) error {
+func (c *offlineCsvParser) writeMstInfoFromTssp(metaWriter io.Writer, outputWriter io.Writer, filePath string, isOrder bool, index interface{}) error {
 	idx, ok := index.(*tsi.MergeSetIndex)
 	if !ok {
 		return fmt.Errorf("invalid index type")
@@ -1341,7 +1339,7 @@ func (c *csvParser) writeMstInfoFromTssp(metaWriter io.Writer, outputWriter io.W
 	return nil
 }
 
-func (c *csvParser) writeMstInfoFromWal(metaWriter io.Writer, outputWriter io.Writer, row interface{}, currentDatabase string) error {
+func (c *offlineCsvParser) writeMstInfoFromWal(metaWriter io.Writer, outputWriter io.Writer, row interface{}, currentDatabase string) error {
 	rowData, ok := row.(influx.Row)
 	if !ok {
 		return fmt.Errorf("invalid row type")
@@ -1383,7 +1381,7 @@ func (c *csvParser) writeMstInfoFromWal(metaWriter io.Writer, outputWriter io.Wr
 	return nil
 }
 
-func (c *csvParser) getRowBuf(buf []byte, measurementName string, row interface{}, _ *opengemini.Point) ([]byte, error) {
+func (c *offlineCsvParser) getRowBuf(buf []byte, measurementName string, row interface{}, _ *opengemini.Point) ([]byte, error) {
 	rowData, ok := row.(influx.Row)
 	if !ok {
 		return nil, fmt.Errorf("invalid row type")
@@ -1428,7 +1426,7 @@ func (c *csvParser) getRowBuf(buf []byte, measurementName string, row interface{
 	return buf, nil
 }
 
-func (c *csvParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info string) {
+func (c *offlineCsvParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info string) {
 	switch infoType {
 	case InfoTypeDatabase:
 		fmt.Fprintf(metaWriter, "#constant database,%s\n", info)
@@ -1441,5 +1439,5 @@ func (c *csvParser) writeMetaInfo(metaWriter io.Writer, infoType InfoType, info 
 	}
 }
 
-func (c *csvParser) writeOutputInfo(_ io.Writer, _ string) {
+func (c *offlineCsvParser) writeOutputInfo(_ io.Writer, _ string) {
 }

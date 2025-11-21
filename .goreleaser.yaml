@@ -46,9 +46,9 @@ builds:
       - -gcflags=-l -B
 
   - main: ./cmd/ts-cli
-    id: ts-cli-offline
-    binary: ts-cli-offline
-    tags: [offline]
+    id: ts-cli-full
+    binary: ts-cli-full
+    tags: [full]
     env:
       - CGO_ENABLED=0
     goos:

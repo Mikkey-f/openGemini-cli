@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !offline
-// +build !offline
-
 package subcmd
 
 import (
 	"compress/gzip"
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -32,7 +28,7 @@ import (
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding"
 	"github.com/openGemini/openGemini-cli/core"
-	"github.com/openGemini/openGemini/lib/util/lifted/vm/protoparser/influx"
+	influx "github.com/openGemini/openGemini-cli/lib/influxparser"
 	"github.com/openGemini/opengemini-client-go/opengemini"
 	"github.com/vbauerster/mpb/v7"
 	"github.com/vbauerster/mpb/v7/decor"
@@ -49,11 +45,8 @@ func getFieldNameIndexFromRow(slice []influx.Field, str string) (int, bool) {
 	return 0, false
 }
 
-// Run executes the export command in online mode
-func (c *ExportCommand) Run(config *ExportConfig) error {
-	if err := flag.CommandLine.Parse([]string{"-loggerLevel=ERROR"}); err != nil {
-		return err
-	}
+// runOnlineExport executes the export command in online mode
+func (c *ExportCommand) runOnlineExport(config *ExportConfig) error {
 	c.cfg = config
 	c.exportCmd = NewExporter()
 
