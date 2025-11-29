@@ -64,9 +64,9 @@ type Exporter struct {
 	exportFormat      string              //nolint:unused,structcheck // used in offline mode
 	databaseDiskInfos []*DatabaseDiskInfo //nolint:unused,structcheck // used in offline mode
 	filesTotalCount   int
-	actualDataPath    string //nolint:unused,structcheck // used in offline mode
-	actualWalPath     string //nolint:unused,structcheck // used in offline mode
-	outPutPath        string //nolint:unused,structcheck // used in offline mode
+	actualDataPath    string      //nolint:unused,structcheck // used in offline mode
+	actualWalPath     string      //nolint:unused,structcheck // used in offline mode
+	outPutPath        string      //nolint:unused,structcheck // used in offline mode
 	filter            *dataFilter //nolint:unused,structcheck // used in offline mode
 	compress          bool        //nolint:unused,structcheck // used in offline mode
 	lineCount         uint64
@@ -180,8 +180,8 @@ func (d *DatabaseDiskInfo) init(actualDataDir string, actualWalDir string, datab
 }
 
 type dataFilter struct { //nolint:unused // used in offline mode
-	database    string
-	retention   string
+	database    string //nolint:unused // used in offline mode
+	retention   string //nolint:unused // used in offline mode
 	measurement string
 	startTime   int64
 	endTime     int64
@@ -241,9 +241,9 @@ func NewExporter() *Exporter {
 type remoteExporter struct {
 	isExist         bool
 	client          opengemini.Client
-	database        string
-	retentionPolicy string
-	points          []*opengemini.Point
+	database        string              //nolint:unused // used in offline mode
+	retentionPolicy string              //nolint:unused // used in offline mode
+	points          []*opengemini.Point //nolint:unused // used in offline mode
 }
 
 type parser interface {
@@ -436,7 +436,7 @@ func EscapeMstName(in string) string {
 
 // Helper utility functions
 
-func convertTime(input string) (int64, error) {
+func convertTime(input string) (int64, error) { //nolint:unused // used in offline mode
 	t, err := time.Parse(time.RFC3339, input)
 	if err == nil {
 		return t.UnixNano(), nil
@@ -452,7 +452,7 @@ func convertTime(input string) (int64, error) {
 
 // dataFilter methods
 
-func (d *dataFilter) parseTime(clc *ExportConfig) error {
+func (d *dataFilter) parseTime(clc *ExportConfig) error { //nolint:unused // used in offline mode
 	var start, end string
 	timeSlot := strings.Split(clc.TimeFilter, "~")
 	if len(timeSlot) == 2 {
@@ -492,14 +492,14 @@ func (d *dataFilter) parseDatabase(dbFilter string) {
 	d.database = dbFilter
 }
 
-func (d *dataFilter) parseRetention(retentionFilter string) {
+func (d *dataFilter) parseRetention(retentionFilter string) { //nolint:unused // used in offline mode
 	if retentionFilter == "" {
 		return
 	}
 	d.retention = retentionFilter
 }
 
-func (d *dataFilter) parseMeasurement(mstFilter string) error {
+func (d *dataFilter) parseMeasurement(mstFilter string) error { //nolint:unused // used in offline mode
 	if mstFilter == "" {
 		return nil
 	}
@@ -511,7 +511,7 @@ func (d *dataFilter) parseMeasurement(mstFilter string) error {
 }
 
 // timeFilter [startTime, endTime]
-func (d *dataFilter) timeFilter(t int64) bool {
+func (d *dataFilter) timeFilter(t int64) bool { //nolint:unused // used in offline mode
 	return t >= d.startTime && t <= d.endTime
 }
 
@@ -577,7 +577,7 @@ func (re *remoteExporter) Init(clc *ExportConfig) error {
 	return nil
 }
 
-func (re *remoteExporter) createDatabase(dbName string) error {
+func (re *remoteExporter) createDatabase(dbName string) error { //nolint:unused // used in offline mode
 	err := re.client.CreateDatabase(dbName)
 	if err != nil {
 		return fmt.Errorf("error writing command: %s", err)
@@ -585,7 +585,7 @@ func (re *remoteExporter) createDatabase(dbName string) error {
 	return nil
 }
 
-func (re *remoteExporter) createRetentionPolicy(dbName string, rpName string) error {
+func (re *remoteExporter) createRetentionPolicy(dbName string, rpName string) error { //nolint:unused // used in offline mode
 	err := re.client.CreateRetentionPolicy(dbName, opengemini.RpConfig{
 		Name:     rpName,
 		Duration: "0s",
@@ -596,7 +596,7 @@ func (re *remoteExporter) createRetentionPolicy(dbName string, rpName string) er
 	return nil
 }
 
-func (re *remoteExporter) writeAllPoints() error {
+func (re *remoteExporter) writeAllPoints() error { //nolint:unused // used in offline mode
 	err := re.client.WriteBatchPointsWithRp(context.Background(), re.database, re.retentionPolicy, re.points)
 	if err != nil {
 		return err

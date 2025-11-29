@@ -28,5 +28,5 @@ func GetBytesBuffer() []byte {
 
 func PutBytesBuffer(b []byte) {
 	b = b[:0]
-	bPool.Put(b)
+	bPool.Put(b) //nolint:staticcheck // SA6002: []byte is already a reference type
 }

@@ -32,7 +32,7 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding"
-	"github.com/golang/snappy"
+	"github.com/klauspost/compress/snappy"
 	influx "github.com/openGemini/openGemini-cli/lib/influxparser"
 	"github.com/openGemini/openGemini/engine"
 	"github.com/openGemini/openGemini/engine/immutable"
