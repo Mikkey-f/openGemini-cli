@@ -485,7 +485,7 @@ func (d *dataFilter) parseTime(clc *ExportConfig) error { //nolint:unused // use
 	return nil
 }
 
-func (d *dataFilter) parseDatabase(dbFilter string) {
+func (d *dataFilter) parseDatabase(dbFilter string) { //nolint:unused // used in offline mode
 	if dbFilter == "" {
 		return
 	}
